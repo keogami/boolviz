@@ -1,0 +1,165 @@
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+.meta {
+  display: none;
+}
+body {
+  padding: 0px;
+  margin: 0px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#inputs {
+  font: 1em sans-serif;
+  display: flex;
+}
+#inputs > div {
+  margin: 0px 1.5em;
+}
+</style>
+
+<canvas id="main-win"></canvas>
+<div id="inputs"></div>
+
+<!-- meta information used for creating self-contained unit -->
+<div class="meta" id="config">
+{{ config }}
+</div>
+
+<img class="meta" id="background-img" src="{{ backgroundImg }}">
+
+<script type="text/javascript">
+var $ = document
+
+var config = JSON.parse($.querySelector('.meta#config').innerText)
+if (innerWidth / innerHeight > 1) {
+  $.body.classList.add("centered")
+}
+
+var addController = function (it) {
+  if (it < 0 || it > 25) return
+
+  var varName = String.fromCharCode(0x61 + it)
+  var input = $.createElement('input')
+  input.type = 'checkbox'
+  input.dataset['var'] = varName
+  input.classList.add("switch")
+  
+  var div = $.createElement('div')
+  div.innerText = varName.toUpperCase() + ": "
+  div.appendChild(input)
+  
+  $.querySelector('#inputs').appendChild(div)
+}
+
+for (var i = 0; i < config.varCount; i++) {
+  addController(i)
+}
+
+var scale = function (natural, transformed) {
+  var ratio = transformed / natural
+  return function (val) {
+    return {
+      scaled: val * ratio,
+      normalised: val / ratio
+    }
+  }
+}
+
+var fitInConstraints = function (maxWidth, maxHeight, natWidth, natHeight) {
+  var newHeight = scale(natWidth, maxWidth)(natHeight).scaled
+  if (newHeight <= maxHeight) return {
+    width: maxWidth, height: newHeight
+  }
+  return {
+    width: scale(newHeight, maxHeight)(maxWidth).scaled, height: maxHeight
+  }
+}
+
+var Inputs = function (...varNames) {
+  var cache = this
+  var vals = {}
+  this.onchange = null
+
+  varNames.map(function (it) {
+    vals[it] = false
+    cache.__defineGetter__(it, function () {
+      return vals[it]
+    })
+
+    cache.__defineSetter__(it, function (val) {
+      vals[it] = val
+      cache.onchange && cache.onchange.apply(null, Object.values(vals))
+    })
+  })
+}
+
+
+var Plotter = function (ctx) {
+  var cache = this
+  this.scaleFactor = 1
+  this.plotTrail = function (lineData, color) {
+    var pointVector = lineData.trace
+    ctx.beginPath()
+    ctx.lineWidth = 2 * this.scaleFactor
+    ctx.strokeStyle = color
+    ctx.moveTo(pointVector[0][0], pointVector[0][1])
+    pointVector.slice(1).map(function (it) {
+      ctx.lineTo(it[0], it[1])
+    })
+    ctx.stroke()
+    ctx.closePath()
+    if (lineData.startsJoint) {
+      var jointRadius = 5 * cache.scaleFactor
+      ctx.beginPath() 
+      ctx.strokeStyle = color
+      ctx.ellipse(pointVector[0][0], pointVector[0][1], jointRadius , jointRadius, Math.PI, 0, 2 * Math.PI)
+      ctx.fillStyle = window.backgroundColor || "white" //in case i decide to change the background color
+      ctx.fill()
+      ctx.stroke()
+      ctx.closePath()
+    }
+  }
+}
+
+var ctx = $.querySelector('canvas').getContext('2d')
+$.querySelector('.meta#background-img').addEventListener('load', function () {
+  ctx.canvas.width = this.width
+  ctx.canvas.height = this.height
+
+  var transformed = fitInConstraints(
+    innerWidth * config.viewport.width,
+    innerHeight * config.viewport.height,
+    this.width,
+    this.height
+  )
+
+  ctx.canvas.style.width = transformed.width + "px"
+  ctx.canvas.style.height = transformed.height + "px"
+
+  var img = this
+  j.scaleFactor = scale(this.width, transformed.width)(1).normalised
+  var inputs = new Inputs({{ inputList }})
+  inputs.onchange = function (...args) {
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+    ctx.drawImage(img, 0, 0)
+    exec.apply(null, args)
+  }
+  inputs.onchange()
+  $.querySelectorAll('.switch').forEach(function (it) {
+    it.addEventListener('change', function () {
+      inputs[it.dataset['var']] = !inputs[it.dataset['var']]
+    })
+  })
+  window.inputs = inputs
+})
+var exec = function ({{ execParams }}) {
+  config.lineVector.map(function (it) {
+    j.plotTrail(it, !!eval(it.activationSeq) ? 'red' : 'black')
+  })
+}
+var j = new Plotter(ctx)
+$.querySelector('canvas').width = innerWidth
+$.querySelector('canvas').height = innerHeight
+</script>
